@@ -1,5 +1,4 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
-import copy
 import warnings
 from typing import Callable, cast, Optional, Sequence, Tuple
 
@@ -86,7 +85,7 @@ class _FromTorchTensor(torch.autograd.Function):
         ctx,  # pyre-ignore[2]: Parameter must be annotated.
         input: torch.Tensor,
         device_mesh: DeviceMesh,
-        placements: Sequence[Placement],
+        placements: Tuple[Placement, ...],
         run_check: bool,
     ) -> "DTensor":
         ctx.previous_placement = placements
@@ -161,7 +160,7 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         cls,
         local_tensor: torch.Tensor,
         device_mesh: DeviceMesh,
-        placements: Sequence[Placement],
+        placements: Tuple[Placement, ...],
         *,
         shape: torch.Size,
         dtype: torch.dtype,
@@ -202,9 +201,7 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
             shape, dtype, requires_grad, stride, None, False, {}
         )
         # deepcopy and set spec
-        r._spec = DTensorSpec(
-            device_mesh, copy.deepcopy(placements), tensor_meta=tensor_meta
-        )
+        r._spec = DTensorSpec(device_mesh, placements, tensor_meta=tensor_meta)
         r._local_tensor = local_tensor
         return r
 
@@ -312,7 +309,7 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         # created should flow back the gradients to the local_tensor, so we call an autograd
         # function to construct the dist tensor instead.
         return _FromTorchTensor.apply(  # pyre-ignore[16]: autograd func
-            local_tensor, device_mesh, placements, run_check
+            local_tensor, device_mesh, tuple(placements), run_check
         )
 
     def to_local(self) -> torch.Tensor:
@@ -457,7 +454,7 @@ def distribute_tensor(
                 f"Cannot distribute a DTensor with device mesh {tensor.device_mesh} "
                 f"to a different device mesh {device_mesh}."
             )
-        if tensor.placements != placements:
+        if tensor.placements != tuple(placements):
             raise ValueError(
                 f"Cannot distribute a DTensor with placements {tensor.placements} "
                 f"to a different placements {placements}. do you want to call "
@@ -491,7 +488,7 @@ def distribute_tensor(
     return DTensor(
         local_tensor.detach(),
         device_mesh,
-        placements,
+        tuple(placements),
         shape=tensor.size(),
         dtype=tensor.dtype,
         requires_grad=tensor.requires_grad,
